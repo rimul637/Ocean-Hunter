@@ -20,9 +20,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Install Android SDK 36
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
       - run: ./gradlew --no-daemon :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease :app:bundleRelease
       - name: Inspect merged release manifest
         run: python3 tools/verify_manifest.py "$(find app/build/intermediates/merged_manifests -path '*release*AndroidManifest.xml' -print -quit)"
@@ -55,12 +57,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
-        if: env.OCEAN_SIGNED_PUBLISH == 'true'
       - uses: gradle/actions/setup-gradle@v4
         if: env.OCEAN_SIGNED_PUBLISH == 'true'
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Install Android SDK 36
         if: env.OCEAN_SIGNED_PUBLISH == 'true'
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
       - name: Load release keystore
         if: env.OCEAN_SIGNED_PUBLISH == 'true'
         env:
