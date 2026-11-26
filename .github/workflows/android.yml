@@ -33,34 +33,46 @@ jobs:
             app/build/reports/tests/testReleaseUnitTest/
             app/build/reports/lint-results-release.html
   publish:
-    if: github.ref == 'refs/tags/v1.0.0' && vars.OCEAN_AUTO_PUBLISH == 'true'
+    if: github.ref == 'refs/tags/v1.0.0'
     needs: verify
     permissions:
       contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      OCEAN_SIGNING_STORE: ${{ runner.temp }}/ocean-release.p12
+      OCEAN_SIGNED_PUBLISH: ${{ secrets.OCEAN_KEYSTORE_BASE64 != '' && secrets.OCEAN_STORE_PASSWORD != '' }}
       OCEAN_STORE_PASSWORD: ${{ secrets.OCEAN_STORE_PASSWORD }}
       OCEAN_KEY_ALIAS: ocean-hunter-release
       OCEAN_KEY_PASSWORD: ${{ secrets.OCEAN_STORE_PASSWORD }}
     steps:
+      - name: Report release signing configuration
+        if: env.OCEAN_SIGNED_PUBLISH != 'true'
+        run: echo "Signed publication requires the repository signing secrets." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
       - uses: actions/setup-java@v4
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
         with:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
       - uses: gradle/actions/setup-gradle@v4
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
       - name: Load release keystore
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.OCEAN_KEYSTORE_BASE64 }}
         run: |
           test -n "$KEYSTORE_BASE64" && test -n "$OCEAN_STORE_PASSWORD"
           umask 077
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$OCEAN_SIGNING_STORE"
+          store="$RUNNER_TEMP/ocean-release.p12"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$store"
+          printf 'OCEAN_SIGNING_STORE=%s\n' "$store" >> "$GITHUB_ENV"
       - name: Build, sign, and check both binaries
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
         run: |
           ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
           python3 tools/verify_manifest.py "$(find app/build/intermediates/merged_manifests -path '*release*AndroidManifest.xml' -print -quit)"
@@ -72,13 +84,15 @@ jobs:
           git archive --format=zip --prefix=Ocean-Hunter/ -o release/Ocean-Hunter-v1.0.0-Source.zip HEAD
           (cd release && sha256sum -- *.apk *.aab *.zip > SHA256SUMS)
       - uses: actions/upload-artifact@v4
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
         with:
           name: Ocean-Hunter-v1.0.0
           path: release/
           if-no-files-found: error
       - name: Publish release
+        if: env.OCEAN_SIGNED_PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create v1.0.0 release/* --verify-tag --title "Ocean Hunter 1.0.0" --generate-notes
       - if: always()
-        run: rm -f "$OCEAN_SIGNING_STORE"
+        run: rm -f "$RUNNER_TEMP/ocean-release.p12"

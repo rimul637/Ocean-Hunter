@@ -25,7 +25,7 @@ python3 tools/verify_manifest.py "$(find app/build/intermediates/merged_manifest
 
 Set `OCEAN_SIGNING_STORE`, `OCEAN_STORE_PASSWORD`, `OCEAN_KEY_ALIAS`, and `OCEAN_KEY_PASSWORD` for a signed local build. The alias for the dedicated release key is `ocean-hunter-release`. Keep the keystore and passwords private.
 
-GitHub Actions builds the app on main and on pull requests. The `v1.0.0` tag runs the signed release job when the repository variable `OCEAN_AUTO_PUBLISH` is `true` and repository secrets `OCEAN_KEYSTORE_BASE64` and `OCEAN_STORE_PASSWORD` are configured. The first contains a single-line Base64 encoding of the private PKCS#12 keystore. The second is its password.
+GitHub Actions builds the app on main and on pull requests. The `v1.0.0` tag runs the signed release job when repository secrets `OCEAN_KEYSTORE_BASE64` and `OCEAN_STORE_PASSWORD` are configured. The first contains a single-line Base64 encoding of the private PKCS#12 keystore. The second is its password.
 
 ## Platform and assets
 
