@@ -4,11 +4,10 @@ import java.util.UUID
 import kotlin.math.*
 import kotlin.random.Random
 
-internal const val SEA_WIDTH = 960f
-internal const val SEA_HEIGHT = 540f
-
 internal enum class Kind { ENEMY, BOSS, TORPEDO, HOSTILE, COIN, CHEST, POWER, HAZARD, PARTICLE, BEACON }
 internal class Entity {
+    var previousX = 0f
+    var previousY = 0f
     var kind = Kind.ENEMY
     var x = 0f
     var y = 0f
@@ -27,6 +26,8 @@ internal class Entity {
         this.kind = kind
         this.x = x
         this.y = y
+        previousX = x
+        previousY = y
         this.radius = radius
         this.code = code
         this.life = life
@@ -68,6 +69,14 @@ internal class DiveEngine(
         private set
     var world = mission?.world ?: random.nextInt(6)
         private set
+    var width = SEA_WIDTH
+        private set
+    var height = SEA_HEIGHT
+        private set
+    var previousX = 174f
+        private set
+    var previousY = 267f
+        private set
     var x = 174f
         private set
     var y = 267f
@@ -87,6 +96,7 @@ internal class DiveEngine(
     var moveX = 0f
     var moveY = 0f
     var fire = false
+    private var fireRequested = false
     private var vx = 0f
     private var vy = 0f
     private var shotClock = 0f
@@ -99,6 +109,31 @@ internal class DiveEngine(
 
     private fun add(kind: Kind, x: Float, y: Float, radius: Float, code: Int = 0, life: Float = 20f): Entity? =
         pool.removeFirstOrNull()?.also { it.set(kind, x, y, radius, code, life); actors.add(it) }
+
+    fun resize(newWidth: Float, newHeight: Float) {
+        if (width == newWidth && height == newHeight) return
+        val horizontal = newWidth / width
+        val vertical = newHeight / height
+        x = (x * horizontal).coerceIn(42f, newWidth - 45f)
+        y = (y * vertical).coerceIn(90f, newHeight - 95f)
+        previousX = x
+        previousY = y
+        for (index in actors.indices) {
+            val actor = actors[index]
+            actor.x *= horizontal
+            actor.y *= vertical
+            actor.origin *= vertical
+            actor.previousX = actor.x
+            actor.previousY = actor.y
+        }
+        width = newWidth
+        height = newHeight
+    }
+
+    fun requestFire() { fireRequested = true }
+    fun cancelFireRequest() { fireRequested = false }
+
+    private fun lane(y: Float) = y + (y - 90f) * (height - SEA_HEIGHT) / 355f
 
     fun shield() {
         if (ended || recharge > 0) return
@@ -116,15 +151,20 @@ internal class DiveEngine(
         for (i in effects.indices) effects[i] = (effects[i] - dt).coerceAtLeast(0f)
 
         val speed = 260f + ranks[1] * 22
-        val length = hypot(moveX, moveY).coerceAtLeast(1f)
+        val length = sqrt((moveX * moveX + moveY * moveY).coerceAtLeast(1f))
         val blend = (dt * 7).coerceAtMost(1f)
         vx += (moveX / length * speed - vx) * blend
         vy += (moveY / length * speed - vy) * blend
-        x = (x + vx * dt).coerceIn(42f, 915f)
-        y = (y + vy * dt).coerceIn(90f, 445f)
+        previousX = x
+        previousY = y
+        x = (x + vx * dt).coerceIn(42f, width - 45f)
+        y = (y + vy * dt).coerceIn(90f, height - 95f)
         tilt = vy * .065f
         shotClock -= dt
-        if (fire && shotClock <= 0f) launch()
+        if ((fire || fireRequested) && shotClock <= 0f) {
+            fireRequested = false
+            launch()
+        }
         schedule(dt)
 
         val count = actors.size
@@ -132,6 +172,8 @@ internal class DiveEngine(
             if (ended) break
             val e = actors[index]
             if (e.life <= 0) continue
+            e.previousX = e.x
+            e.previousY = e.y
             e.age += dt
             e.life -= dt
             e.flash -= dt
@@ -153,7 +195,7 @@ internal class DiveEngine(
         }
         for (index in actors.lastIndex downTo 0) {
             val e = actors[index]
-            if (e.life <= 0f || e.x !in -130f..1150f || e.y !in -130f..630f) {
+            if (e.life <= 0f || e.x < -130f || e.x > width + 190f || e.y < -130f || e.y > height + 90f) {
                 val last = actors.removeAt(actors.lastIndex)
                 if (index < actors.size) actors[index] = last
                 pool.addLast(e)
@@ -180,8 +222,9 @@ internal class DiveEngine(
             else -> 1
         }
         val boost = if (effects[Power.DAMAGE.ordinal] > 0) 1.65f else 1f
+        val lifetime = max(2f, width / 515f + .15f)
         for (i in 0 until spread) {
-            add(Kind.TORPEDO, x + 32, y, 9f, ((14 + ranks[2] * 4) * boost).toInt(), 2f)?.apply {
+            add(Kind.TORPEDO, x + 32, y, 9f, ((14 + ranks[2] * 4) * boost).toInt(), lifetime)?.apply {
                 vx = 515f
                 vy = (i - (spread - 1) / 2f) * 100
             }
@@ -197,12 +240,12 @@ internal class DiveEngine(
         } else if (mission?.goal == Goal.BOSS && spawnedBoss == 0 && elapsed > 3f) spawnBoss(world)
 
         if (mission?.goal == Goal.DESTINATION && elapsed >= mission.span && !beacon) {
-            beacon = add(Kind.BEACON, 880f, 165f + mission.formation * 48, 32f, life = 99999f) != null
+            beacon = add(Kind.BEACON, width - 80f, lane(165f + mission.formation * 48), 32f, life = 99999f) != null
         }
         if (mission?.goal == Goal.TREASURE) {
             chestClock -= dt
             if (chestClock <= 0f) {
-                add(Kind.CHEST, 980f, 124f + random.nextInt(277), 23f, life = 19f)?.vx = -94f
+                add(Kind.CHEST, width + 20f, lane(124f + random.nextInt(277)), 23f, life = 19f)?.vx = -94f
                 chestClock = 4.5f
             }
         }
@@ -214,15 +257,17 @@ internal class DiveEngine(
             val difficulty = mission?.let { (it.number - 1) / 9f } ?: (elapsed / 35f).coerceAtMost(12f)
             val count = if (wave > 1 && (wave + formation) % 3 == 0) 3 else 2
             repeat(count) { index ->
-                val lane = when (formation) {
+                val spawnLane = when (formation) {
                     0 -> 130 + (wave * 83 + index * 105) % 290
                     1 -> 137 + index * 138
                     2 -> 125 + ((wave + index) % 3) * 132
-                    3 -> (y + if (index == 0) -100 else 110).coerceIn(110f, 424f).toInt()
+                    3 -> 0
                     else -> 136 + (wave * 61 + index * 63) % 264
                 }
+                val spawnY = if (formation == 3) (y + if (index == 0) -100 else 110).coerceIn(110f, height - 116f)
+                    else lane(spawnLane.toFloat())
                 val type = enemies[(wave + index * 2 + formation) % enemies.size]
-                add(Kind.ENEMY, 1005f + index * 67f, lane.toFloat(), type.radius, type.ordinal, 30f)?.apply {
+                add(Kind.ENEMY, width + 45f + index * 67f, spawnY, type.radius, type.ordinal, 30f)?.apply {
                     hp = type.hp + (difficulty * 2.3f).toInt()
                     vx = -type.speed - (difficulty * 5).coerceAtMost(50f)
                     timer = 1f + index * .5f
@@ -235,14 +280,14 @@ internal class DiveEngine(
         if (hazard == 0) return
         hazardClock -= dt
         if (hazardClock <= 0f) {
-            val lane = 118 + random.nextInt(296)
-            add(Kind.HAZARD, minOf(880f, x + 110), lane.toFloat(), 28f + hazard * 10, 15 + hazard * 2, 3.1f)
+            val hazardY = lane(118f + random.nextInt(296))
+            add(Kind.HAZARD, minOf(width - 80f, x + 110), hazardY, 28f + hazard * 10, 15 + hazard * 2, 3.1f)
             hazardClock = 10f - hazard * 2
         }
     }
 
     private fun spawnBoss(stage: Int) {
-        val entry = add(Kind.BOSS, 1060f, 250f, 65f, stage, 99999f) ?: return
+        val entry = add(Kind.BOSS, width + 100f, lane(250f), 65f, stage, 99999f) ?: return
         spawnedBoss++
         boss = entry.apply {
             hp = bossMax(stage)
@@ -253,8 +298,8 @@ internal class DiveEngine(
     fun bossMax(stage: Int) = 370 + stage * 68 + if (mission == null) spawnedBoss.coerceAtMost(20) * 25 else 0
 
     private fun updateBoss(e: Entity, dt: Float) {
-        e.x += ((if (e.code == 1 && e.warning < .3f && e.timer < .82f) 600f else 793f) - e.x) * dt * 1.7f
-        e.y += (250f + sin(e.age * (.85f + e.code * .11f)) * (65f + e.code * 6) - e.y) * dt * 2f
+        e.x += ((if (e.code == 1 && e.warning < .3f && e.timer < .82f) width - 360f else width - 167f) - e.x) * dt * 1.7f
+        e.y += (lane(250f) + sin(e.age * (.85f + e.code * .11f)) * (65f + e.code * 6) - e.y) * dt * 2f
         if (e.age < 1.6f) return
         e.timer -= dt
         e.warning = if (e.timer in 0f..0.82f) e.timer else 0f
@@ -266,10 +311,10 @@ internal class DiveEngine(
                 1 -> fan(e, aim, if (fury) 5 else 3, .22f, 315f)
                 2 -> {
                     fan(e, aim, if (fury) 5 else 2, .18f, 255f)
-                    add(Kind.HAZARD, x.coerceAtMost(865f), y, 46f, 19, 2.7f)
+                    add(Kind.HAZARD, x.coerceAtMost(width - 95f), y, 46f, 19, 2.7f)
                 }
                 3 -> for (i in 0..4) {
-                    if (i != wave % 5) add(Kind.HOSTILE, 954f, 112f + i * 78, 13f, 17, 6f)?.vx = if (fury) -340f else -245f
+                    if (i != wave % 5) add(Kind.HOSTILE, width - 6f, lane(112f + i * 78), 13f, 17, 6f)?.vx = if (fury) -340f else -245f
                 }
                 4 -> {
                     fan(e, PI.toFloat(), if (fury) 8 else 5, .16f, 221f)
@@ -299,22 +344,21 @@ internal class DiveEngine(
 
     private fun updateEnemy(e: Entity, dt: Float) {
         val type = Enemy.entries[e.code]
-        val angle = atan2(y - e.y, x - e.x)
         e.timer -= dt
         when (type) {
             Enemy.SHARK -> { e.vy = (y - e.y).coerceIn(-70f, 70f); if (e.age > 1.1f && e.age < 1.7f) e.x -= dt * 115f }
             Enemy.JELLY -> { e.y = e.origin + sin(e.age * 2f) * 36f; e.warning = if (e.age % 3f > 2.35f) .6f else 0f }
-            Enemy.SUB -> if (e.timer <= 0f && e.x in (x + 130)..935f) { fan(e, angle, 1, 0f, 230f); e.timer = 2.65f }
+            Enemy.SUB -> if (e.timer <= 0f && e.x > x + 130 && e.x < width - 25f) { fan(e, atan2(y - e.y, x - e.x), 1, 0f, 230f); e.timer = 2.65f }
             Enemy.CRAB -> e.y = e.origin + abs(sin(e.age * 3f)) * 22f
             Enemy.SNAKE -> e.y = e.origin + sin(e.age * 4.4f) * 59f
-            Enemy.OCTOPUS -> if (e.timer <= 0f && e.x in (x + 150)..900f) {
+            Enemy.OCTOPUS -> if (e.timer <= 0f && e.x > x + 150 && e.x < width - 60f) {
                 add(Kind.HAZARD, e.x - 104, e.y, 40f, type.damage, 2.4f)
                 e.timer = 3.4f
             }
             Enemy.PUFFER -> e.radius = type.radius + (1 + sin(e.age * 2.8f)) * 7f
             Enemy.MINE -> e.y = e.origin + sin(e.age * 1.5f) * 14f
             Enemy.DRONE -> e.vy = (y - e.y).coerceIn(-110f, 110f)
-            Enemy.MONSTER -> if (e.timer <= 0f && e.x in (x + 140)..920f) { fan(e, angle, 3, .23f, 223f); e.timer = 3f }
+            Enemy.MONSTER -> if (e.timer <= 0f && e.x > x + 140 && e.x < width - 40f) { fan(e, atan2(y - e.y, x - e.x), 3, .23f, 223f); e.timer = 3f }
         }
         if (touches(e, x, y, if (e.warning > 0f) 38f else 12f)) {
             hurt(type.damage)

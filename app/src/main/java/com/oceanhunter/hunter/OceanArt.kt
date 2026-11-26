@@ -19,8 +19,14 @@ internal class OceanArt {
         intArrayOf(0xff53465f.toInt(), 0xff240c28.toInt(), 0xff7d3b41.toInt(), 0xfffa713b.toInt()),
         intArrayOf(0xff32528e.toInt(), 0xff090d2a.toInt(), 0xff354078.toInt(), 0xffa878ef.toInt())
     )
-    private val backgrounds = arrayOfNulls<Bitmap>(6)
-    private val layers = arrayOfNulls<Bitmap>(6)
+    private val backgrounds = arrayOfNulls<BitmapShader>(6)
+    private val layers = arrayOfNulls<BitmapShader>(6)
+    private val terrainMatrix = Matrix()
+    private var water: LinearGradient? = null
+    private var surfaceLight: RadialGradient? = null
+    private var gradientWorld = -1
+    private var gradientWidth = 0f
+    private var gradientHeight = 0f
     private val fishColors = intArrayOf(0xff5ea3d1.toInt(), 0xffdf8be7.toInt(), 0xff3da9bd.toInt(), 0xffec655a.toInt(),
         0xff74d38f.toInt(), 0xffc566bd.toInt(), 0xffffba60.toInt(), 0xff63718e.toInt(), 0xff6ccee0.toInt(), 0xff8671c8.toInt())
     private val player by lazy { sprite(null) }
@@ -29,6 +35,8 @@ internal class OceanArt {
     private val white = Color.WHITE
     private val outline = 0xff0a1736.toInt()
     private val gold = 0xffffc243.toInt()
+    private val coin by lazy { collectibleTexture(11f, 0xffffeb8b.toInt(), 0xffdb7b13.toInt()) }
+    private val powers by lazy { Array(Power.entries.size) { collectibleTexture(14f, fishColors[it], outline) } }
 
     private fun color(value: Int) { paint.shader = null; paint.style = Paint.Style.FILL; paint.color = value }
     private fun oval(c: Canvas, x: Float, y: Float, rx: Float, ry: Float, value: Int) {
@@ -42,9 +50,9 @@ internal class OceanArt {
         for (i in 2 until xy.size step 2) path.lineTo(xy[i], xy[i + 1])
         path.close(); c.drawPath(path, paint)
     }
-    private fun ray(c: Canvas, value: Int, x: Float, bottom: Float) {
+    private fun ray(c: Canvas, value: Int, x: Float, bottom: Float, height: Float) {
         color(value); path.reset()
-        path.moveTo(x, 0f); path.lineTo(x + 28, 0f); path.lineTo(bottom, 415f); path.lineTo(x - 177, 329f)
+        path.moveTo(x, 0f); path.lineTo(x + 28, 0f); path.lineTo(bottom, height * .77f); path.lineTo(x - 177, height * .61f)
         path.close(); c.drawPath(path, paint)
     }
     private fun line(c: Canvas, x: Float, y: Float, x2: Float, y2: Float, size: Float, value: Int) {
@@ -61,12 +69,20 @@ internal class OceanArt {
 
     fun preload(index: Int) {
         if (backgrounds[index] != null) return
-        backgrounds[index] = makeBackground(index, false)
-        layers[index] = makeBackground(index, true)
+        backgrounds[index] = terrainShader(index, false)
+        layers[index] = terrainShader(index, true)
         player
+        coin
+        powers
         for (type in Campaign.worlds[index].enemies + bosses[index]) {
             if (sprites[type.ordinal] == null) sprites[type.ordinal] = sprite(type)
         }
+    }
+
+    private fun terrainShader(world: Int, foreground: Boolean): BitmapShader {
+        val bitmap = makeBackground(world, foreground)
+        bitmap.prepareToDraw()
+        return BitmapShader(bitmap, Shader.TileMode.MIRROR, Shader.TileMode.CLAMP)
     }
 
     private fun makeBackground(world: Int, foreground: Boolean): Bitmap {
@@ -75,11 +91,6 @@ internal class OceanArt {
         val palette = ocean[world]
         val rng = Random(42 + world)
         if (!foreground) {
-            color(white)
-            paint.shader = LinearGradient(0f, 0f, 0f, 540f, palette[0], palette[1], Shader.TileMode.CLAMP)
-            c.drawPaint(paint)
-            paint.shader = RadialGradient(545f, 0f, 590f, 0x8560f9ff.toInt(), 0x0060f9ff, Shader.TileMode.CLAMP)
-            c.drawPaint(paint)
             for (depth in 0..2) {
                 path.reset(); path.moveTo(0f, 540f)
                 for (i in 0..20) {
@@ -140,34 +151,66 @@ internal class OceanArt {
         return bitmap
     }
 
-    fun environment(c: Canvas, world: Int, time: Float) {
+    fun environment(c: Canvas, world: Int, time: Float, width: Float, height: Float) {
         preload(world)
+        if (world != gradientWorld || width != gradientWidth || height != gradientHeight) {
+            val palette = ocean[world]
+            water = LinearGradient(0f, 0f, 0f, height, palette[0], palette[1], Shader.TileMode.CLAMP)
+            surfaceLight = RadialGradient(width * .57f, 0f, max(height, width * .61f),
+                0x8560f9ff.toInt(), 0x0060f9ff, Shader.TileMode.CLAMP)
+            gradientWorld = world
+            gradientWidth = width
+            gradientHeight = height
+        }
         color(white)
-        c.drawBitmap(checkNotNull(backgrounds[world]), 0f, 0f, paint)
+        paint.shader = water
+        c.drawRect(0f, 0f, width, height, paint)
+        paint.shader = surfaceLight
+        c.drawRect(0f, 0f, width, height, paint)
+        terrain(c, checkNotNull(backgrounds[world]), width, height, time * 4f)
+
         val light = sin(time * .16f) * 39f
         for (i in 0..5) {
-            val x = 300f + i * 46 + light
-            ray(c, if (i % 2 == 0) 0x164af3ff else 0x0d7af6ff, x, x - 104 + i * 16)
+            val x = width * .5f + (i - 3) * 46f + light
+            ray(c, if (i % 2 == 0) 0x164af3ff else 0x0d7af6ff, x, x - 104 + i * 16, height)
         }
-        for (i in 0..33) {
-            val x = ((i * 67f - time * (6 + i % 3)) % 970 + 970) % 970
-            val y = (i * 36f + 5400f - time * (9 + i % 5)).mod(540f)
-            color(0x488deeff); paint.style = Paint.Style.STROKE; paint.strokeWidth = .9f
+        val bubbleCount = (34f * sqrt(width / SEA_WIDTH * height / SEA_HEIGHT)).toInt().coerceIn(34, 64)
+        color(0x488deeff)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = .9f
+        for (i in 0 until bubbleCount) {
+            val x = (i * 67f - time * (6 + i % 3)).mod(width)
+            val y = (i * 36f - time * (9 + i % 5)).mod(height)
             c.drawCircle(x + sin(y * .05f) * 7, y, 2f + i % 5, paint)
         }
-        for (i in 0..11) {
-            val x = (1050f + i * 78f - time * (14 + i % 3) + 1100).mod(1100f) - 45
-            val y = 95f + i % 6 * 39 + sin(time * 1.3f + i) * 8
+        val fishCount = (12f * width / SEA_WIDTH).toInt().coerceIn(12, 22)
+        for (i in 0 until fishCount) {
+            val x = (width + 90f + i * 78f - time * (14 + i % 3)).mod(width + 140f) - 45f
+            val y = height * (.175f + i % 6 * .072f) + sin(time * 1.3f + i) * 8f
             val shade = if (i % 4 == 0) 0x9deab55b.toInt() else 0x804fe2ce.toInt()
             oval(c, x, y, 9f + i % 4, 4f, shade)
             line(c, x + 7, y, x + 15, y - 4, 2.5f, shade)
             line(c, x + 7, y, x + 15, y + 4, 2.5f, shade)
             oval(c, x - 4, y - 1, 1.3f, 1.3f, outline)
         }
+        terrain(c, checkNotNull(layers[world]), width, height, time * 18f)
+    }
+
+    private fun terrain(c: Canvas, shader: BitmapShader, width: Float, height: Float, scroll: Float) {
+        val top = height - SEA_HEIGHT
+        terrainMatrix.setTranslate(-scroll.mod(SEA_WIDTH * 2), top)
+        shader.setLocalMatrix(terrainMatrix)
         color(white)
-        val drift = (time * 18f).mod(960f)
-        c.drawBitmap(checkNotNull(layers[world]), -drift, 0f, paint)
-        c.drawBitmap(checkNotNull(layers[world]), 960f - drift, 0f, paint)
+        paint.shader = shader
+        c.drawRect(0f, top, width, height, paint)
+    }
+
+    private fun collectibleTexture(radius: Float, light: Int, dark: Int): Bitmap {
+        val center = radius + 3f
+        val bitmap = createBitmap((center * 2).toInt(), (center * 2).toInt())
+        glossy(Canvas(bitmap), center, center, radius, radius, light, dark)
+        bitmap.prepareToDraw()
+        return bitmap
     }
 
     private fun sprite(type: Enemy?): Bitmap {
@@ -187,6 +230,7 @@ internal class OceanArt {
             oval(c, -34f, 8f, 11f, 11f, outline)
             oval(c, -34f, 8f, 7f, 7f, 0xffffe477.toInt())
             round(c, -12f, 16f, 31f, 21f, 2f, 0xff63391c.toInt())
+            b.prepareToDraw()
             return b
         }
         val tint = fishColors[type.ordinal]
@@ -238,6 +282,7 @@ internal class OceanArt {
                 eye(c, -34f, -6f)
             }
         }
+        b.prepareToDraw()
         return b
     }
 
@@ -271,60 +316,71 @@ internal class OceanArt {
         }
     }
 
-    fun render(c: Canvas, engine: DiveEngine) {
-        environment(c, engine.world, engine.elapsed)
-        for (e in engine.actors) {
-            if (e.x !in -95f..1050f || e.y !in -70f..610f) continue
+    fun render(c: Canvas, engine: DiveEngine, time: Float, blend: Float) {
+        environment(c, engine.world, time, engine.width, engine.height)
+        for (index in engine.actors.indices) {
+            val e = engine.actors[index]
+            val x = e.previousX + (e.x - e.previousX) * blend
+            val y = e.previousY + (e.y - e.previousY) * blend
+            val margin = if (e.kind == Kind.BOSS) 160f else 100f
+            if (x < -margin || x > engine.width + margin || y < -margin || y > engine.height + margin) continue
             when (e.kind) {
                 Kind.BOSS, Kind.ENEMY -> {
                     val type = if (e.kind == Kind.BOSS) bosses[e.code] else Enemy.entries[e.code]
                     val image = sprites[type.ordinal] ?: sprite(type).also { sprites[type.ordinal] = it }
                     val scale = e.radius / 37f * if (e.kind == Kind.BOSS) 1.15f else .93f
                     val tilt = sin(e.age * 3.4f) * (if (e.kind == Kind.BOSS) 5 else 8)
-                    c.withRotation(tilt, e.x, e.y) {
-                        drawBitmap(this, image, e.x, e.y, scale, type == Enemy.SUB || type == Enemy.DRONE, e.flash > 0f)
+                    c.withRotation(tilt, x, y) {
+                        drawBitmap(this, image, x, y, scale, type == Enemy.SUB || type == Enemy.DRONE, e.flash > 0f)
                     }
-                    if (e.warning > 0f) ring(c, e.x, e.y, e.radius + 9f + sin(e.age * 26) * 4, 0xeeffba76.toInt())
+                    if (e.warning > 0f) ring(c, x, y, e.radius + 9f + sin(e.age * 26) * 4, 0xeeffba76.toInt())
                 }
                 Kind.TORPEDO -> {
-                    line(c, e.x - 37, e.y, e.x - 1, e.y, 5f, 0x70ffb445)
-                    round(c, e.x - 13, e.y - 4, e.x + 9, e.y + 4, 4f, 0xffff8150.toInt())
-                    line(c, e.x - 6, e.y - 1, e.x + 7, e.y - 1, 2.8f, 0xffffe68d.toInt())
+                    line(c, x - 37, y, x - 1, y, 5f, 0x70ffb445)
+                    round(c, x - 13, y - 4, x + 9, y + 4, 4f, 0xffff8150.toInt())
+                    line(c, x - 6, y - 1, x + 7, y - 1, 2.8f, 0xffffe68d.toInt())
                 }
-                Kind.HOSTILE -> { oval(c, e.x, e.y, 11f, 7f, 0x99f84176.toInt()); oval(c, e.x, e.y, 5f, 4f, 0xffffc1b4.toInt()) }
-                Kind.COIN -> glossy(c, e.x, e.y, 5f + abs(cos(e.age * 9)) * 6, 11f, 0xffffeb8b.toInt(), 0xffdb7b13.toInt())
+                Kind.HOSTILE -> { oval(c, x, y, 11f, 7f, 0x99f84176.toInt()); oval(c, x, y, 5f, 4f, 0xffffc1b4.toInt()) }
+                Kind.COIN -> {
+                    val half = 8f + abs(cos(e.age * 9)) * 6f
+                    rect.set(x - half, y - 14f, x + half, y + 14f)
+                    color(white)
+                    c.drawBitmap(coin, null, rect, paint)
+                }
                 Kind.CHEST -> {
-                    val y = e.y + sin(e.age * 5) * 3
-                    round(c, e.x - 21, y - 12, e.x + 21, y + 14, 7f, gold)
-                    round(c, e.x - 17, y - 8, e.x + 17, y + 10, 5f, 0xff814628.toInt())
-                    line(c, e.x - 19, y, e.x + 19, y, 3f, gold)
-                    round(c, e.x - 4, y - 4, e.x + 4, y + 7, 2f, gold)
+                    val bob = y + sin(e.age * 5) * 3
+                    round(c, x - 21, bob - 12, x + 21, bob + 14, 7f, gold)
+                    round(c, x - 17, bob - 8, x + 17, bob + 10, 5f, 0xff814628.toInt())
+                    line(c, x - 19, bob, x + 19, bob, 3f, gold)
+                    round(c, x - 4, bob - 4, x + 4, bob + 7, 2f, gold)
                 }
                 Kind.POWER -> {
-                    glossy(c, e.x, e.y, 14f, 14f, fishColors[e.code], outline)
-                    line(c, e.x - 6, e.y, e.x + 6, e.y, 2.5f, white)
-                    line(c, e.x, e.y - 6, e.x, e.y + 6, 2.5f, white)
+                    drawBitmap(c, powers[e.code], x, y, 1f)
+                    line(c, x - 6, y, x + 6, y, 2.5f, white)
+                    line(c, x, y - 6, x, y + 6, 2.5f, white)
                 }
                 Kind.BEACON -> {
-                    ring(c, e.x, e.y, 26f + sin(e.age * 5) * 5f, 0xff7bffe1.toInt())
-                    oval(c, e.x, e.y, 11f, 11f, 0xff9effe2.toInt())
+                    ring(c, x, y, 26f + sin(e.age * 5) * 5f, 0xff7bffe1.toInt())
+                    oval(c, x, y, 11f, 11f, 0xff9effe2.toInt())
                 }
                 Kind.HAZARD -> {
                     val shade = if (e.age < 1.15f) 0x36ffae63 else 0x85ff7453.toInt()
-                    oval(c, e.x, e.y, e.radius, e.radius, shade)
-                    ring(c, e.x, e.y, e.radius, 0xcaffbc79.toInt())
+                    oval(c, x, y, e.radius, e.radius, shade)
+                    ring(c, x, y, e.radius, 0xcaffbc79.toInt())
                 }
                 Kind.PARTICLE -> {
                     val alpha = (e.life * 300).toInt().coerceIn(0, 220)
                     val rgb = if (e.code == 0) 0xff897b else if (e.code == 1) 0xffdf75 else 0xffa444
-                    oval(c, e.x, e.y, e.radius, e.radius, (alpha shl 24) or rgb)
+                    oval(c, x, y, e.radius, e.radius, (alpha shl 24) or rgb)
                 }
             }
         }
-        submarine(c, engine.x, engine.y, .84f, engine.elapsed, engine.tilt, engine.invulnerable > .78f)
+        val playerX = engine.previousX + (engine.x - engine.previousX) * blend
+        val playerY = engine.previousY + (engine.y - engine.previousY) * blend
+        submarine(c, playerX, playerY, .84f, time, engine.tilt, engine.invulnerable > .78f)
         if (engine.barrier > 0 || engine.effects[Power.SHIELD.ordinal] > 0) {
-            oval(c, engine.x, engine.y, 46f, 37f, 0x3995faff)
-            ring(c, engine.x, engine.y, 43f + sin(engine.elapsed * 13) * 3, 0xaa79feff.toInt())
+            oval(c, playerX, playerY, 46f, 37f, 0x3995faff)
+            ring(c, playerX, playerY, 43f + sin(time * 13) * 3, 0xaa79feff.toInt())
         }
     }
 

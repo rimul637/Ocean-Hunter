@@ -6,7 +6,11 @@ import android.graphics.*
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.graphics.Insets
+import androidx.core.graphics.withSave
 import androidx.core.graphics.withTranslation
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlin.math.*
 
 @SuppressLint("ViewConstructor")
@@ -15,6 +19,7 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
         set(value) {
             if (field === value) return
             field = value
+            value?.resize(viewport.width, viewport.height)
             clearInput()
             previous = 0L
             accumulator = 0f
@@ -37,22 +42,26 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
     private var previous = 0L
     private var timeline = 0f
     private var accumulator = 0f
-    private var scale = 1f
-    private var left = 0f
-    private var top = 0f
+    private val viewport = OceanViewport()
+    private var controlsInsets = Insets.NONE
     private var moveId = -1
     private var fireId = -1
     private var shieldId = -1
     private var stickX = 0f
     private var stickY = 0f
     private val keys = BooleanArray(300)
-    private val draw = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD) }
+    private val draw = Paint(Paint.ANTI_ALIAS_FLAG)
     private val brass = 0xffffd574.toInt()
     private val ink = 0xff071b33.toInt()
     private val emerald = 0xff68f0ac.toInt()
     private val sky = 0xff95f6ff.toInt()
     private val ruby = 0xffff846d.toInt()
     private val white = Color.WHITE
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+        setShadowLayer(2f, 0f, 2f, ink)
+    }
+    private val bossNames = Campaign.worlds.map { it.boss.uppercase() }
     private val brassGradient = LinearGradient(0f, -35f, 0f, 35f, intArrayOf(0xfffff6b6.toInt(), brass, 0xff9b541e.toInt()), null, Shader.TileMode.CLAMP)
     private val shades = listOf(
         intArrayOf(0xff51bbda.toInt(), 0xff164783.toInt()),
@@ -79,12 +88,29 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
         isFocusable = true
         isFocusableInTouchMode = true
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.mandatorySystemGestures())
+            if (safe != controlsInsets) {
+                controlsInsets = safe
+                resizeViewport(width, height)
+            }
+            insets
+        }
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        scale = min(w / SEA_WIDTH, h / SEA_HEIGHT).coerceAtLeast(.001f)
-        left = (w - SEA_WIDTH * scale) / 2
-        top = (h - SEA_HEIGHT * scale) / 2
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        ViewCompat.requestApplyInsets(this)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = resizeViewport(w, h)
+
+    private fun resizeViewport(w: Int, h: Int) {
+        val safe = controlsInsets
+        viewport.update(w, h, safe.left, safe.top, safe.right, safe.bottom)
+        engine?.resize(viewport.width, viewport.height)
+        clearInput()
+        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -101,32 +127,32 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
                 accumulator -= STEP
             }
         }
-        canvas.drawColor(ink)
-        val zoom = scale
-        canvas.withTranslation(left, top) {
-            scale(zoom, zoom)
-            clipRect(0f, 0f, SEA_WIDTH, SEA_HEIGHT)
+        canvas.withSave {
+            scale(viewport.scale, viewport.scale)
             if (dive == null) {
-                art.environment(this, scene, timeline)
-                if (preview) art.submarine(this, 478f, 273f + sin(timeline * 2.2f) * 14, 2.45f, timeline, sin(timeline * 1.5f) * 6)
+                art.environment(this, scene, timeline, viewport.width, viewport.height)
+                if (preview) art.submarine(this, viewport.width * .498f,
+                    viewport.height * .505f + sin(timeline * 2.2f) * 14, 2.45f, timeline, sin(timeline * 1.5f) * 6)
             } else {
                 val health = dive.health.toFloat() / dive.maxHealth
                 displayedHull += (health - displayedHull) * (if (dive.ended) 1f else min(1f, dt * 12))
-                art.render(this, dive)
-                renderHud(this, dive)
+                val blend = if (dive.ended) 1f else (accumulator / STEP).coerceIn(0f, 1f)
+                val time = (dive.elapsed - STEP + accumulator).coerceAtLeast(0f)
+                art.render(this, dive, time, blend)
+                withTranslation(viewport.hudLeft, viewport.hudTop) {
+                    scale(viewport.hudScale, viewport.hudScale)
+                    renderHud(this, dive)
+                }
             }
         }
         if (live && dive?.ended != true) postInvalidateOnAnimation()
     }
 
     private fun label(c: Canvas, text: String, x: Float, y: Float, textSize: Float, color: Int = white, centered: Boolean = false) {
-        draw.shader = null
-        draw.color = color
-        draw.textAlign = if (centered) Paint.Align.CENTER else Paint.Align.LEFT
-        draw.textSize = textSize
-        draw.setShadowLayer(2f, 0f, 2f, ink)
-        c.drawText(text, x, y, draw)
-        draw.clearShadowLayer()
+        textPaint.color = color
+        textPaint.textAlign = if (centered) Paint.Align.CENTER else Paint.Align.LEFT
+        textPaint.textSize = textSize
+        c.drawText(text, x, y, textPaint)
     }
 
     private fun slab(c: Canvas, x: Float, y: Float, w: Float, h: Float, tint: Int, radius: Float = 12f) {
@@ -157,17 +183,18 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
         label(c, hullText, 34f, 41f, 17f, emerald)
         slab(c, 34f, 49f, 146f, 7f, ink, 4f)
         slab(c, 34f, 49f, 146f * displayedHull, 7f, if (dive.health * 3 < dive.maxHealth) ruby else emerald, 4f)
-        slab(c, 265f, 13f, 430f, 62f, 0x96102b4d.toInt())
-        label(c, missionTitle, 480f, 34f, 20f, brass, true)
-        label(c, missionProgress, 480f, 52f, 15f, white, true)
-        label(c, scoreText, 480f, 68f, 13f, sky, true)
-        label(c, coinsText, 795f, 47f, 21f, brass)
-        control(c, 904f, 37f, 25f, 3, "Ⅱ", false)
+        val center = viewport.centerX
+        slab(c, center - 215f, 13f, 430f, 62f, 0x96102b4d.toInt())
+        label(c, missionTitle, center, 34f, 20f, brass, true)
+        label(c, missionProgress, center, 52f, 15f, white, true)
+        label(c, scoreText, center, 68f, 13f, sky, true)
+        label(c, coinsText, viewport.hudWidth - 165f, 47f, 21f, brass)
+        control(c, viewport.pauseX, PAUSE_Y, 25f, 3, "Ⅱ", false)
         val boss = dive.boss
         if (boss != null) {
-            slab(c, 294f, 86f, 372f, 28f, 0xbe1f183d.toInt())
-            slab(c, 310f, 105f, 340f * boss.hp.coerceAtLeast(0) / dive.bossMax(boss.code), 4f, ruby, 2f)
-            label(c, Campaign.worlds[boss.code].boss.uppercase(), 480f, 101f, 14f, ruby, true)
+            slab(c, center - 186f, 86f, 372f, 28f, 0xbe1f183d.toInt())
+            slab(c, center - 170f, 105f, 340f * boss.hp.coerceAtLeast(0) / dive.bossMax(boss.code), 4f, ruby, 2f)
+            label(c, bossNames[boss.code], center, 101f, 14f, ruby, true)
         }
         var powerX = 220f
         for (i in dive.effects.indices) {
@@ -177,13 +204,13 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
                 effectSeconds[i] = remaining
                 effectLabels[i] = "${Power.entries[i].title} ${remaining}s"
             }
-            label(c, effectLabels[i], powerX, 522f, 13f, sky)
+            label(c, effectLabels[i], powerX, viewport.hudHeight - 18f, 13f, sky)
             powerX += 78f
         }
-        control(c, 95f, 452f, 48f, 0, "", moveId != -1)
-        control(c, 95f + stickX * 28, 452f + stickY * 28, 19f, 0, "✥", false)
-        control(c, 877f, 448f, 43f, 1, "FIRE", dive.fire)
-        control(c, 770f, 469f, 36f, 2, if (dive.recharge > 0f) countdown[ceil(dive.recharge).toInt().coerceIn(1, 9)] else "SHIELD", shieldId != -1)
+        control(c, JOYSTICK_X, viewport.joystickY, 48f, 0, "", moveId != -1)
+        control(c, JOYSTICK_X + stickX * 28, viewport.joystickY + stickY * 28, 19f, 0, "✥", false)
+        control(c, viewport.fireX, viewport.fireY, 43f, 1, "FIRE", dive.fire)
+        control(c, viewport.shieldX, viewport.shieldY, 36f, 2, if (dive.recharge > 0f) countdown[ceil(dive.recharge).toInt().coerceIn(1, 9)] else "SHIELD", shieldId != -1)
     }
 
     private val countdown = (0..9).map { "${it}s" }
@@ -210,20 +237,23 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
         if (!live || dive.ended) return false
         val index = event.actionIndex
         val id = event.getPointerId(index)
-        val x = (event.getX(index) - left) / scale
-        val y = (event.getY(index) - top) / scale
+        val x = viewport.hudX(event.getX(index))
+        val y = viewport.hudY(event.getY(index))
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 when {
-                    hypot(x - 904, y - 37) < 32 -> pause()
-                    hypot(x - 877, y - 448) < 53 && fireId == -1 -> fireId = id
-                    hypot(x - 770, y - 469) < 44 && shieldId == -1 -> { shieldId = id; dive.shield() }
-                    x in 19f..190f && y in 360f..530f && moveId == -1 -> { moveId = id; moveStick(x, y) }
+                    hypot(x - viewport.pauseX, y - PAUSE_Y) < 32 -> pause()
+                    hypot(x - viewport.fireX, y - viewport.fireY) < 53 && fireId == -1 -> {
+                        fireId = id
+                        dive.requestFire()
+                    }
+                    hypot(x - viewport.shieldX, y - viewport.shieldY) < 44 && shieldId == -1 -> { shieldId = id; dive.shield() }
+                    x in 19f..190f && y in (viewport.joystickY - 92f)..(viewport.hudHeight - 10f) && moveId == -1 -> { moveId = id; moveStick(x, y) }
                 }
             }
             MotionEvent.ACTION_MOVE -> {
                 val selected = event.findPointerIndex(moveId)
-                if (selected >= 0) moveStick((event.getX(selected) - left) / scale, (event.getY(selected) - top) / scale)
+                if (selected >= 0) moveStick(viewport.hudX(event.getX(selected)), viewport.hudY(event.getY(selected)))
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 if (moveId == id) { moveId = -1; stickX = 0f; stickY = 0f }
@@ -240,8 +270,8 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
     override fun performClick(): Boolean = super.performClick()
 
     private fun moveStick(x: Float, y: Float) {
-        val dx = x - 95f
-        val dy = y - 452f
+        val dx = x - JOYSTICK_X
+        val dy = y - viewport.joystickY
         val distance = hypot(dx, dy).coerceAtLeast(30f)
         stickX = dx / distance
         stickY = dy / distance
@@ -257,7 +287,10 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
             KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_E -> {
                 keys[code] = event.action == KeyEvent.ACTION_DOWN
-                if (code == KeyEvent.KEYCODE_E && keys[code] && event.repeatCount == 0) dive.shield()
+                if (keys[code] && event.repeatCount == 0) when (code) {
+                    KeyEvent.KEYCODE_E -> dive.shield()
+                    KeyEvent.KEYCODE_SPACE -> dive.requestFire()
+                }
                 updateInput()
                 return true
             }
@@ -274,10 +307,15 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
         }
     }
     private fun clearInput() {
+        engine?.cancelFireRequest()
         keys.fill(false); moveId = -1; fireId = -1; shieldId = -1; stickX = 0f; stickY = 0f
         updateInput()
         hudElapsed = -1; hudKills = -1; hudGems = -1; hudScore = -1; hudCoins = -1; hull = -1
     }
 
-    companion object { private const val STEP = 1f / 120f }
+    companion object {
+        private const val STEP = 1f / 120f
+        private const val JOYSTICK_X = 95f
+        private const val PAUSE_Y = 37f
+    }
 }

@@ -143,9 +143,7 @@ internal fun OceanGame(
     }
     BackHandler { back() }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Navy).windowInsetsPadding(WindowInsets.displayCutout)) {
-        val compact = maxHeight < 435.dp
-        val landscape = maxWidth > maxHeight
+    Box(Modifier.fillMaxSize().background(Navy)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { OceanView(it, art).also(register) },
@@ -158,137 +156,141 @@ internal fun OceanGame(
                 it.invalidate()
             }
         )
-        val spacing = if (compact) 6.dp else 10.dp
-        when (page) {
-            Page.SPLASH -> Column(Modifier.align(Alignment.TopCenter).padding(top = if (landscape) 18.dp else 86.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Logo(compact)
-                Image(painterResource(R.drawable.ocean_icon), "Ocean Hunter", Modifier.padding(top = 10.dp).size(if (compact) 48.dp else 72.dp))
-            }
-            Page.HOME -> if (landscape) {
-                Row(Modifier.fillMaxSize().padding(horizontal = 38.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Logo(compact)
-                        TextLine("◈  ${progress.coins}   •   BEST  ${progress.best}", Gold, 18)
+        BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout.union(WindowInsets.mandatorySystemGestures))) {
+            val compact = maxHeight < 435.dp
+            val landscape = maxWidth > maxHeight
+            val spacing = if (compact) 6.dp else 10.dp
+            when (page) {
+                Page.SPLASH -> Column(Modifier.align(Alignment.TopCenter).padding(top = if (landscape) 18.dp else 86.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Logo(compact)
+                    Image(painterResource(R.drawable.ocean_icon), "Ocean Hunter", Modifier.padding(top = 10.dp).size(if (compact) 48.dp else 72.dp))
+                }
+                Page.HOME -> if (landscape) {
+                    Row(Modifier.fillMaxSize().padding(horizontal = 38.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Logo(compact)
+                            TextLine("◈  ${progress.coins}   •   BEST  ${progress.best}", Gold, 18)
+                        }
+                        Column(Modifier.widthIn(max = 236.dp).verticalScroll(rememberScrollState()).focusGroup(), verticalArrangement = Arrangement.spacedBy(spacing)) {
+                            MainButtons({ chapter = (progress.unlocked - 1) / 10; navigate(Page.LEVELS) }, { start(0) },
+                                { navigate(Page.SHOP) }, { navigate(Page.SETTINGS) }, exit)
+                        }
                     }
-                    Column(Modifier.widthIn(max = 236.dp).verticalScroll(rememberScrollState()).focusGroup(), verticalArrangement = Arrangement.spacedBy(spacing)) {
+                } else {
+                    Column(Modifier.align(Alignment.Center).fillMaxWidth(.78f).verticalScroll(rememberScrollState()).focusGroup(),
+                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                        Logo(false)
+                        TextLine("◈  ${progress.coins}   •   BEST  ${progress.best}", Gold, 18)
+                        Spacer(Modifier.height(28.dp))
                         MainButtons({ chapter = (progress.unlocked - 1) / 10; navigate(Page.LEVELS) }, { start(0) },
                             { navigate(Page.SHOP) }, { navigate(Page.SETTINGS) }, exit)
                     }
                 }
-            } else {
-                Column(Modifier.align(Alignment.Center).fillMaxWidth(.78f).verticalScroll(rememberScrollState()).focusGroup(),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Logo(false)
-                    TextLine("◈  ${progress.coins}   •   BEST  ${progress.best}", Gold, 18)
-                    Spacer(Modifier.height(28.dp))
-                    MainButtons({ chapter = (progress.unlocked - 1) / 10; navigate(Page.LEVELS) }, { start(0) },
-                        { navigate(Page.SHOP) }, { navigate(Page.SETTINGS) }, exit)
-                }
-            }
-            Page.LEVELS -> Frame("DIVE MAP", { navigate(Page.HOME) }, compact) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GoldButton("‹", Tint.BLUE, Modifier.width(52.dp), enabled = chapter > 0) { chapter--; audio.play(Cue.CLICK) }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        TextLine(Campaign.worlds[chapter].title, Gold, 24)
-                        TextLine("${progress.stars.drop(chapter * 10).take(10).count { it > 0 }} / 10 cleared", Ice, 13)
-                    }
-                    GoldButton("›", Tint.BLUE, Modifier.width(52.dp), enabled = chapter < 5) { chapter++; audio.play(Cue.CLICK) }
-                }
-                if (landscape) {
-                    repeat(2) { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            repeat(5) { col ->
-                                LevelButton(chapter * 10 + row * 5 + col + 1, progress, Modifier.weight(1f), ::start)
-                            }
+                Page.LEVELS -> Frame("DIVE MAP", { navigate(Page.HOME) }, compact) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GoldButton("‹", Tint.BLUE, Modifier.width(52.dp), enabled = chapter > 0) { chapter--; audio.play(Cue.CLICK) }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            TextLine(Campaign.worlds[chapter].title, Gold, 24)
+                            TextLine("${progress.stars.drop(chapter * 10).take(10).count { it > 0 }} / 10 cleared", Ice, 13)
                         }
+                        GoldButton("›", Tint.BLUE, Modifier.width(52.dp), enabled = chapter < 5) { chapter++; audio.play(Cue.CLICK) }
                     }
-                } else {
-                    repeat(5) { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            repeat(2) { col ->
-                                LevelButton(chapter * 10 + row * 2 + col + 1, progress, Modifier.weight(1f), ::start)
-                            }
-                        }
-                    }
-                }
-            }
-            Page.SHOP -> Frame("SUBMARINE WORKSHOP", { navigate(Page.HOME) }, compact) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextLine("◈  ${progress.coins}", Gold, 20)
-                    SubPreview(art, active)
-                }
-                if (message.isNotEmpty()) TextLine(message, Ice, 14)
-                for (upgrade in Upgrade.entries) {
-                    val rank = progress.upgrades[upgrade.ordinal]
-                    val cost = upgrade.cost(rank)
-                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            TextLine("${upgrade.title}  ${rank}/5", Gold, 15)
-                            TextLine("${upgrade.stat}  ${upgrade.value(rank)}${if (rank < 5) " → ${upgrade.value(rank + 1)}" else ""}", Ice, 12)
-                            val fill by animateFloatAsState(rank / 5f, tween(360), label = "upgrade rank")
-                            Box(Modifier.width(95.dp).height(4.dp).clip(RoundedCornerShape(5.dp)).background(Color(0xff2b5465))) {
-                                Box(Modifier.fillMaxWidth(fill).fillMaxHeight().background(Gold))
-                            }
-                        }
-                        GoldButton(if (rank == 5) "MAX" else "◈ $cost", Tint.ORANGE, Modifier.width(if (compact) 103.dp else 88.dp),
-                            enabled = rank < 5 && progress.coins >= cost, height = 41) {
-                            scope.launch {
-                                try {
-                                    if (store.buy(upgrade, rank)) { audio.play(Cue.UPGRADE); message = "${upgrade.title} upgraded" }
-                                } catch (_: IOException) { message = "Upgrade could not be saved" }
-                            }
-                        }
-                    }
-                }
-            }
-            Page.SETTINGS -> Frame("SETTINGS", { navigate(Page.HOME) }, compact) {
-                GoldButton("♫  MUSIC  ${if (progress.music) "ON" else "OFF"}", Tint.BLUE, Modifier.fillMaxWidth()) {
-                    audio.play(Cue.CLICK)
-                    scope.launch { try { store.toggleMusic() } catch (_: IOException) { message = "Setting could not be saved" } }
-                }
-                GoldButton("♪  SOUND EFFECTS  ${if (progress.sfx) "ON" else "OFF"}", Tint.PURPLE, Modifier.fillMaxWidth()) {
-                    audio.play(Cue.CLICK)
-                    scope.launch { try { store.toggleSfx() } catch (_: IOException) { message = "Setting could not be saved" } }
-                }
-                if (message.isNotEmpty()) TextLine(message, Ice, 14)
-            }
-            Page.GAME -> Unit
-        }
-
-        val finished = result
-        if (page == Page.GAME && (paused || finished != null)) {
-            Box(Modifier.fillMaxSize().background(Color(0xa405142c)), contentAlignment = Alignment.Center) {
-                var opened by remember { mutableStateOf(false) }
-                LaunchedEffect(Unit) { opened = true }
-                AnimatedVisibility(opened, enter = fadeIn(tween(190)) + scaleIn(tween(230), initialScale = .84f)) {
-                    Column(Modifier.widthIn(max = 440.dp).fillMaxWidth(.9f).verticalScroll(rememberScrollState())
-                        .clip(Rim).background(Brush.verticalGradient(listOf(Color(0xff204b68), Navy))).border(2.dp, Gold, Rim).padding(15.dp).focusGroup(),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(spacing)) {
-                        if (finished == null) {
-                            TextLine("DIVE PAUSED", Gold, 30)
-                            GoldButton("▶  RESUME", Tint.GREEN, Modifier.fillMaxWidth()) { audio.play(Cue.CLICK); paused = false }
-                            GoldButton("↻  RESTART", Tint.ORANGE, Modifier.fillMaxWidth()) { start(dive?.mission?.number ?: 0) }
-                            GoldButton("⌂  HOME", Tint.BLUE, Modifier.fillMaxWidth()) { navigate(Page.HOME) }
-                        } else {
-                            TextLine(if (finished.cleared) "LEVEL COMPLETE" else "GAME OVER", Gold, 30)
-                            if (finished.cleared) {
-                                val size by animateFloatAsState(if (opened) 1f else .3f, spring(dampingRatio = .55f), label = "earned stars")
-                                Box(Modifier.graphicsLayer { scaleX = size; scaleY = size }) {
-                                    TextLine("★".repeat(finished.stars) + "☆".repeat(3 - finished.stars), Gold, 35)
+                    if (landscape) {
+                        repeat(2) { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                repeat(5) { col ->
+                                    LevelButton(chapter * 10 + row * 5 + col + 1, progress, Modifier.weight(1f), ::start)
                                 }
                             }
-                            TextLine("Score  ${finished.score}    ◈  ${finished.coins + finished.bonus}", Ice, 17)
-                            if (finished.bonus > 0) TextLine("Collected ${finished.coins}  •  Reward ${finished.bonus}", Gold, 13)
-                            if (finished.level == 0) TextLine("Best  ${maxOf(progress.best, finished.score)}", Gold, 15)
-                            if (saving) TextLine("Saving rewards…", Ice, 13)
-                            if (!saved && !saving && message.isNotEmpty()) {
-                                TextLine(message, Ice, 14)
-                                GoldButton("RETRY SAVE", Tint.ORANGE, Modifier.fillMaxWidth()) { save(finished) }
-                            }
-                            if (finished.cleared && finished.level < 60) GoldButton("▶  NEXT LEVEL", Tint.GREEN, Modifier.fillMaxWidth(), saved) { start(finished.level + 1) }
+                        }
+                    } else {
+                        repeat(5) { row ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                GoldButton(if (finished.cleared) "↻  REPLAY" else "↻  RETRY", Tint.ORANGE, Modifier.weight(1f), saved) { start(finished.level) }
-                                GoldButton("⌂  HOME", Tint.BLUE, Modifier.weight(1f), saved) { navigate(Page.HOME) }
+                                repeat(2) { col ->
+                                    LevelButton(chapter * 10 + row * 2 + col + 1, progress, Modifier.weight(1f), ::start)
+                                }
+                            }
+                        }
+                    }
+                }
+                Page.SHOP -> Frame("SUBMARINE WORKSHOP", { navigate(Page.HOME) }, compact) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextLine("◈  ${progress.coins}", Gold, 20)
+                        SubPreview(art, active)
+                    }
+                    if (message.isNotEmpty()) TextLine(message, Ice, 14)
+                    for (upgrade in Upgrade.entries) {
+                        val rank = progress.upgrades[upgrade.ordinal]
+                        val cost = upgrade.cost(rank)
+                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                TextLine("${upgrade.title}  ${rank}/5", Gold, 15)
+                                TextLine("${upgrade.stat}  ${upgrade.value(rank)}${if (rank < 5) " → ${upgrade.value(rank + 1)}" else ""}", Ice, 12)
+                                val fill by animateFloatAsState(rank / 5f, tween(360), label = "upgrade rank")
+                                Box(Modifier.width(95.dp).height(4.dp).clip(RoundedCornerShape(5.dp)).background(Color(0xff2b5465))) {
+                                    Box(Modifier.fillMaxWidth(fill).fillMaxHeight().background(Gold))
+                                }
+                            }
+                            GoldButton(if (rank == 5) "MAX" else "◈ $cost", Tint.ORANGE, Modifier.width(if (compact) 103.dp else 88.dp),
+                                enabled = rank < 5 && progress.coins >= cost, height = 41) {
+                                scope.launch {
+                                    try {
+                                        if (store.buy(upgrade, rank)) { audio.play(Cue.UPGRADE); message = "${upgrade.title} upgraded" }
+                                    } catch (_: IOException) { message = "Upgrade could not be saved" }
+                                }
+                            }
+                        }
+                    }
+                }
+                Page.SETTINGS -> Frame("SETTINGS", { navigate(Page.HOME) }, compact) {
+                    GoldButton("♫  MUSIC  ${if (progress.music) "ON" else "OFF"}", Tint.BLUE, Modifier.fillMaxWidth()) {
+                        audio.play(Cue.CLICK)
+                        scope.launch { try { store.toggleMusic() } catch (_: IOException) { message = "Setting could not be saved" } }
+                    }
+                    GoldButton("♪  SOUND EFFECTS  ${if (progress.sfx) "ON" else "OFF"}", Tint.PURPLE, Modifier.fillMaxWidth()) {
+                        audio.play(Cue.CLICK)
+                        scope.launch { try { store.toggleSfx() } catch (_: IOException) { message = "Setting could not be saved" } }
+                    }
+                    if (message.isNotEmpty()) TextLine(message, Ice, 14)
+                }
+                Page.GAME -> Unit
+            }
+
+            val finished = result
+            if (page == Page.GAME && (paused || finished != null)) {
+                Box(Modifier.fillMaxSize().background(Color(0xa405142c)), contentAlignment = Alignment.Center) {
+                    var opened by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { opened = true }
+                    AnimatedVisibility(opened, enter = fadeIn(tween(190)) + scaleIn(tween(230), initialScale = .84f)) {
+                        Column(Modifier.widthIn(max = 440.dp).fillMaxWidth(.9f).verticalScroll(rememberScrollState())
+                            .clip(Rim).background(Brush.verticalGradient(listOf(Color(0xff204b68), Navy))).border(2.dp, Gold, Rim).padding(15.dp).focusGroup(),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(spacing)) {
+                            if (finished == null) {
+                                TextLine("DIVE PAUSED", Gold, 30)
+                                GoldButton("▶  RESUME", Tint.GREEN, Modifier.fillMaxWidth()) { audio.play(Cue.CLICK); paused = false }
+                                GoldButton("↻  RESTART", Tint.ORANGE, Modifier.fillMaxWidth()) { start(dive?.mission?.number ?: 0) }
+                                GoldButton("⌂  HOME", Tint.BLUE, Modifier.fillMaxWidth()) { navigate(Page.HOME) }
+                            } else {
+                                TextLine(if (finished.cleared) "LEVEL COMPLETE" else "GAME OVER", Gold, 30)
+                                if (finished.cleared) {
+                                    val size by animateFloatAsState(if (opened) 1f else .3f, spring(dampingRatio = .55f), label = "earned stars")
+                                    Box(Modifier.graphicsLayer { scaleX = size; scaleY = size }) {
+                                        TextLine("★".repeat(finished.stars) + "☆".repeat(3 - finished.stars), Gold, 35)
+                                    }
+                                }
+                                TextLine("Score  ${finished.score}    ◈  ${finished.coins + finished.bonus}", Ice, 17)
+                                if (finished.bonus > 0) TextLine("Collected ${finished.coins}  •  Reward ${finished.bonus}", Gold, 13)
+                                if (finished.level == 0) TextLine("Best  ${maxOf(progress.best, finished.score)}", Gold, 15)
+                                if (saving) TextLine("Saving rewards…", Ice, 13)
+                                if (!saved && !saving && message.isNotEmpty()) {
+                                    TextLine(message, Ice, 14)
+                                    GoldButton("RETRY SAVE", Tint.ORANGE, Modifier.fillMaxWidth()) { save(finished) }
+                                }
+                                if (finished.cleared && finished.level < 60) GoldButton("▶  NEXT LEVEL", Tint.GREEN, Modifier.fillMaxWidth(), saved) { start(finished.level + 1) }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    GoldButton(if (finished.cleared) "↻  REPLAY" else "↻  RETRY", Tint.ORANGE, Modifier.weight(1f), saved) { start(finished.level) }
+                                    GoldButton("⌂  HOME", Tint.BLUE, Modifier.weight(1f), saved) { navigate(Page.HOME) }
+                                }
                             }
                         }
                     }
