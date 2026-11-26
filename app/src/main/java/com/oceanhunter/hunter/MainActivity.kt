@@ -3,6 +3,7 @@ package com.oceanhunter.hunter
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.Window
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
@@ -28,6 +29,16 @@ class MainActivity : ComponentActivity() {
         store = ProgressStore(this)
         sound = OceanAudio(this)
         setContent { OceanGame(store, sound, active, ::finish) { gameView = it } }
+        val defaultCallback = window.callback
+        window.callback = object : Window.Callback by defaultCallback {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                    if (event.action == KeyEvent.ACTION_UP) onBackPressedDispatcher.onBackPressed()
+                    return true
+                }
+                return gameView?.handleKey(event) == true || defaultCallback.dispatchKeyEvent(event)
+            }
+        }
     }
 
     private fun immerse() {
@@ -54,12 +65,5 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         sound.close()
         super.onDestroy()
-    }
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            if (event.action == KeyEvent.ACTION_UP) onBackPressedDispatcher.onBackPressed()
-            return true
-        }
-        return gameView?.handleKey(event) == true || super.dispatchKeyEvent(event)
     }
 }

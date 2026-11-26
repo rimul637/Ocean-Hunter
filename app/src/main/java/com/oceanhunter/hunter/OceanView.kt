@@ -1,12 +1,15 @@
 package com.oceanhunter.hunter
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.graphics.withTranslation
 import kotlin.math.*
 
+@SuppressLint("ViewConstructor")
 internal class OceanView(context: Context, private val art: OceanArt) : View(context) {
     var engine: DiveEngine? = null
         set(value) {
@@ -15,6 +18,7 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
             clearInput()
             previous = 0L
             accumulator = 0f
+            displayedHull = 1f
             requestFocus()
             invalidate()
         }
@@ -65,6 +69,7 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
     private var missionProgress = ""
     private var hullText = ""
     private var hull = -1
+    private var displayedHull = 1f
     private var scoreText = ""
     private var coinsText = ""
     private val effectSeconds = IntArray(Power.entries.size) { -1 }
@@ -97,18 +102,20 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
             }
         }
         canvas.drawColor(ink)
-        canvas.save()
-        canvas.translate(left, top)
-        canvas.scale(scale, scale)
-        canvas.clipRect(0f, 0f, SEA_WIDTH, SEA_HEIGHT)
-        if (dive == null) {
-            art.environment(canvas, scene, timeline)
-            if (preview) art.submarine(canvas, 478f, 273f + sin(timeline * 2.2f) * 14, 2.45f, timeline, sin(timeline * 1.5f) * 6)
-        } else {
-            art.render(canvas, dive)
-            renderHud(canvas, dive)
+        val zoom = scale
+        canvas.withTranslation(left, top) {
+            scale(zoom, zoom)
+            clipRect(0f, 0f, SEA_WIDTH, SEA_HEIGHT)
+            if (dive == null) {
+                art.environment(this, scene, timeline)
+                if (preview) art.submarine(this, 478f, 273f + sin(timeline * 2.2f) * 14, 2.45f, timeline, sin(timeline * 1.5f) * 6)
+            } else {
+                val health = dive.health.toFloat() / dive.maxHealth
+                displayedHull += (health - displayedHull) * (if (dive.ended) 1f else min(1f, dt * 12))
+                art.render(this, dive)
+                renderHud(this, dive)
+            }
         }
-        canvas.restore()
         if (live && dive?.ended != true) postInvalidateOnAnimation()
     }
 
@@ -149,7 +156,7 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
         slab(c, 22f, 17f, 171f, 50f, 0xb5082240.toInt())
         label(c, hullText, 34f, 41f, 17f, emerald)
         slab(c, 34f, 49f, 146f, 7f, ink, 4f)
-        slab(c, 34f, 49f, 146f * dive.health / dive.maxHealth, 7f, if (dive.health * 3 < dive.maxHealth) ruby else emerald, 4f)
+        slab(c, 34f, 49f, 146f * displayedHull, 7f, if (dive.health * 3 < dive.maxHealth) ruby else emerald, 4f)
         slab(c, 265f, 13f, 430f, 62f, 0x96102b4d.toInt())
         label(c, missionTitle, 480f, 34f, 20f, brass, true)
         label(c, missionProgress, 480f, 52f, 15f, white, true)
@@ -182,15 +189,20 @@ internal class OceanView(context: Context, private val art: OceanArt) : View(con
     private val countdown = (0..9).map { "${it}s" }
 
     private fun control(c: Canvas, x: Float, y: Float, r: Float, style: Int, text: String, pressed: Boolean) {
-        c.save(); c.translate(x, y)
-        if (pressed) c.scale(.91f, .91f)
-        draw.shader = null; draw.color = 0xcc0a1024.toInt(); c.drawCircle(0f, 5f, r + 3, draw)
-        draw.shader = brassGradient; c.drawCircle(0f, 0f, r, draw)
-        draw.shader = shades[style]; c.drawCircle(0f, 0f, r - 4, draw)
-        draw.shader = null; draw.color = 0x56ffffff
-        c.drawOval(-r * .57f, -r * .76f, r * .56f, -r * .43f, draw)
-        if (text.isNotEmpty()) label(c, text, 0f, r * .2f, r * .43f + 2, white, true)
-        c.restore()
+        c.withTranslation(x, y) {
+            if (pressed) scale(.91f, .91f)
+            draw.shader = null
+            draw.color = 0xcc0a1024.toInt()
+            drawCircle(0f, 5f, r + 3, draw)
+            draw.shader = brassGradient
+            drawCircle(0f, 0f, r, draw)
+            draw.shader = shades[style]
+            drawCircle(0f, 0f, r - 4, draw)
+            draw.shader = null
+            draw.color = 0x56ffffff
+            drawOval(-r * .57f, -r * .76f, r * .56f, -r * .43f, draw)
+            if (text.isNotEmpty()) label(this, text, 0f, r * .2f, r * .43f + 2, white, true)
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

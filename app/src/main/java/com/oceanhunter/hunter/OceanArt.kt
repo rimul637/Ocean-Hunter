@@ -1,6 +1,9 @@
 package com.oceanhunter.hunter
 
 import android.graphics.*
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withRotation
+import androidx.core.graphics.withSave
 import kotlin.math.*
 import kotlin.random.Random
 
@@ -67,7 +70,7 @@ internal class OceanArt {
     }
 
     private fun makeBackground(world: Int, foreground: Boolean): Bitmap {
-        val bitmap = Bitmap.createBitmap(960, 540, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(960, 540)
         val c = Canvas(bitmap)
         val palette = ocean[world]
         val rng = Random(42 + world)
@@ -168,7 +171,7 @@ internal class OceanArt {
     }
 
     private fun sprite(type: Enemy?): Bitmap {
-        val b = Bitmap.createBitmap(148, 112, Bitmap.Config.ARGB_8888)
+        val b = createBitmap(148, 112)
         val c = Canvas(b)
         c.translate(74f, 54f)
         if (type == null || type == Enemy.SUB || type == Enemy.DRONE) {
@@ -212,9 +215,9 @@ internal class OceanArt {
             }
             Enemy.MINE, Enemy.PUFFER -> {
                 for (i in 0..13) {
-                    c.save(); c.rotate(i * (360f / 14))
-                    poly(c, tint, -9f, -22f, 0f, -44f, 9f, -22f)
-                    c.restore()
+                    c.withRotation(i * (360f / 14)) {
+                        poly(this, tint, -9f, -22f, 0f, -44f, 9f, -22f)
+                    }
                 }
                 glossy(c, 0f, 0f, 30f, 28f, tint, outline)
                 if (type == Enemy.MINE) { oval(c, -4f, -4f, 13f, 12f, outline); oval(c, -4f, -4f, 6f, 6f, 0xffff6544.toInt()) }
@@ -248,24 +251,24 @@ internal class OceanArt {
         val w = image.width * scale / 2
         val h = image.height * scale / 2
         rect.set(x - w, y - h, x + w, y + h)
-        c.save()
-        if (flip) c.scale(-1f, 1f, x, y)
-        color(white)
-        if (flash) paint.colorFilter = flashFilter
-        c.drawBitmap(image, null, rect, paint)
-        paint.colorFilter = null
-        c.restore()
+        c.withSave {
+            if (flip) scale(-1f, 1f, x, y)
+            color(white)
+            if (flash) paint.colorFilter = flashFilter
+            drawBitmap(image, null, rect, paint)
+            paint.colorFilter = null
+        }
     }
 
     private val flashFilter = PorterDuffColorFilter(0xa5fff6bd.toInt(), PorterDuff.Mode.SRC_ATOP)
 
     fun submarine(c: Canvas, x: Float, y: Float, scale: Float, time: Float, tilt: Float = 0f, flash: Boolean = false) {
-        c.save(); c.rotate(tilt, x, y)
-        val jet = sin(time * 58f) * 8f
-        oval(c, x - (53 + jet) * scale, y + 1f, (17 + jet) * scale, 5f * scale, 0x8880effe.toInt())
-        oval(c, x - 54f * scale, y, 4f * scale, (3f + abs(jet)) * scale, 0xffeafaef.toInt())
-        drawBitmap(c, player, x, y, scale, flash = flash)
-        c.restore()
+        c.withRotation(tilt, x, y) {
+            val jet = sin(time * 58f) * 8f
+            oval(this, x - (53 + jet) * scale, y + 1f, (17 + jet) * scale, 5f * scale, 0x8880effe.toInt())
+            oval(this, x - 54f * scale, y, 4f * scale, (3f + abs(jet)) * scale, 0xffeafaef.toInt())
+            drawBitmap(this, player, x, y, scale, flash = flash)
+        }
     }
 
     fun render(c: Canvas, engine: DiveEngine) {
@@ -277,10 +280,10 @@ internal class OceanArt {
                     val type = if (e.kind == Kind.BOSS) bosses[e.code] else Enemy.entries[e.code]
                     val image = sprites[type.ordinal] ?: sprite(type).also { sprites[type.ordinal] = it }
                     val scale = e.radius / 37f * if (e.kind == Kind.BOSS) 1.15f else .93f
-                    c.save()
-                    c.rotate(sin(e.age * 3.4f) * (if (e.kind == Kind.BOSS) 5 else 8), e.x, e.y)
-                    drawBitmap(c, image, e.x, e.y, scale, type == Enemy.SUB || type == Enemy.DRONE, e.flash > 0f)
-                    c.restore()
+                    val tilt = sin(e.age * 3.4f) * (if (e.kind == Kind.BOSS) 5 else 8)
+                    c.withRotation(tilt, e.x, e.y) {
+                        drawBitmap(this, image, e.x, e.y, scale, type == Enemy.SUB || type == Enemy.DRONE, e.flash > 0f)
+                    }
                     if (e.warning > 0f) ring(c, e.x, e.y, e.radius + 9f + sin(e.age * 26) * 4, 0xeeffba76.toInt())
                 }
                 Kind.TORPEDO -> {
